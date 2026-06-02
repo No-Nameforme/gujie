@@ -23,6 +23,7 @@ jobs:
 
       - name: Add COOP/COEP headers via Service Worker
         run: |
+          # Create service worker that injects COOP/COEP headers
           cat > sw.js << 'SWEOF'
           self.addEventListener('install', event => {
             self.skipWaiting();
@@ -46,8 +47,9 @@ jobs:
           });
           SWEOF
 
-          # Inject service worker registration into index.html
-          sed -i 's|</head>|<script>navigator.serviceWorker.register("sw.js");</script></head>|' index.html
+          # Inject service worker registration + auto-reload into index.html
+          # Key: on first load, register SW then reload so headers take effect
+          sed -i 's|</head>|<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(function(reg){if(!navigator.serviceWorker.controller){navigator.serviceWorker.addEventListener("controllerchange",function(){window.location.reload()})}})}</script></head>|' index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
