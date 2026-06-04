@@ -23,42 +23,37 @@ jobs:
 
       - name: Add COOP/COEP headers via Service Worker
         run: |
-          # Create service worker with cache-busting
           cat > sw.js << 'SWEOF'
-          const CACHE_NAME = 'gujie-v7.5.2';
-          
+          // Service Worker for Cross-Origin Isolation (COOP/COEP)
+          // Only intercepts navigation requests (the HTML page) to add headers.
+          // All subresource requests (.wasm, .pck, .js) pass through untouched
+          // to avoid breaking binary file loading.
           self.addEventListener('install', event => {
             self.skipWaiting();
           });
-          
           self.addEventListener('activate', event => {
-            event.waitUntil(
-              caches.keys().then(names => {
-                return Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)));
-              }).then(() => clients.claim())
-            );
+            event.waitUntil(clients.claim());
           });
-          
           self.addEventListener('fetch', event => {
-            // Never cache - always fetch fresh, then add headers
-            event.respondWith(
-              fetch(event.request, { cache: 'no-store' }).then(response => {
-                const newHeaders = new Headers(response.headers);
-                newHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
-                newHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
-                newHeaders.set('Cache-Control', 'no-cache');
-                return new Response(response.body, {
-                  status: response.status,
-                  statusText: response.statusText,
-                  headers: newHeaders
-                });
-              })
-            );
+            if (event.request.mode === 'navigate') {
+              event.respondWith(
+                fetch(event.request).then(response => {
+                  const newHeaders = new Headers(response.headers);
+                  newHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
+                  newHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
+                  return new Response(response.body, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: newHeaders
+                  });
+                })
+              );
+            }
           });
           SWEOF
 
-          # Inject service worker registration with cache busting into index.html
-          sed -i 's|</head>|<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js?v='$(date +%s)'").then(function(reg){if(!navigator.serviceWorker.controller){navigator.serviceWorker.addEventListener("controllerchange",function(){window.location.reload()})}else{reg.update()}})}</script></head>|' index.html
+          # Inject SW registration into index.html
+          sed -i 's|</head>|<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(function(reg){if(!navigator.serviceWorker.controller){navigator.serviceWorker.addEventListener("controllerchange",function(){window.location.reload()})}})}</script></head>|' index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
