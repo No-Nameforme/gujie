@@ -21,20 +21,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Add COOP/COEP headers via Service Worker
+      - name: Setup COOP/COEP Service Worker
         run: |
           cat > sw.js << 'SWEOF'
-          // Service Worker for Cross-Origin Isolation (COOP/COEP)
-          // Only intercepts navigation requests (the HTML page) to add headers.
-          // All subresource requests (.wasm, .pck, .js) pass through untouched
-          // to avoid breaking binary file loading.
+          // COOP/COEP Service Worker v2
+          // Only intercepts navigation requests to add cross-origin isolation headers.
+          // All subresource requests pass through unmodified to avoid breaking binary streams.
+          const SW_VERSION = 2;
+          
           self.addEventListener('install', event => {
             self.skipWaiting();
           });
+          
           self.addEventListener('activate', event => {
-            event.waitUntil(clients.claim());
+            // Clean up old caches and take control immediately
+            event.waitUntil(
+              caches.keys().then(names => 
+                Promise.all(names.map(n => caches.delete(n)))
+              ).then(() => clients.claim())
+            );
           });
+          
           self.addEventListener('fetch', event => {
+            // Only intercept navigation requests (the HTML page)
+            // This adds COOP/COEP for SharedArrayBuffer without breaking .wasm/.pck loading
             if (event.request.mode === 'navigate') {
               event.respondWith(
                 fetch(event.request).then(response => {
@@ -49,11 +59,12 @@ jobs:
                 })
               );
             }
+            // All other requests (wasm, pck, js) pass through normally
           });
           SWEOF
 
-          # Inject SW registration into index.html
-          sed -i 's|</head>|<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(function(reg){if(!navigator.serviceWorker.controller){navigator.serviceWorker.addEventListener("controllerchange",function(){window.location.reload()})}})}</script></head>|' index.html
+          # Inject SW registration + force update logic into index.html
+          sed -i 's|</head>|<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(function(reg){reg.update();if(!navigator.serviceWorker.controller){navigator.serviceWorker.addEventListener("controllerchange",function(){window.location.reload()})}})}</script></head>|' index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
